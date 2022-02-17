@@ -1,0 +1,63 @@
+trigger:
+ - master
+
+pool:
+ vmImage: 'windows-latest'
+
+variables:
+  buildConfiguration:  'debug'
+  azureSubscriptionConnection: 'azure-rm-svc-connection'
+  appServiceName: 'tlsbx-poc-fineos-claims-service'
+  solutionDirectoryName: 'FineosClaimService'
+  secretsKeyVaultName: 'TAL-Sandbox-Secrets'
+
+stages:
+ - stage: Build
+   displayName: Build
+   jobs:
+    - job: Build
+      displayName: Build Package
+      steps:
+        - task: NuGetCommand@2
+          displayName: Nuget restore
+          inputs:
+            command: 'restore'
+            restoreSolution: '**/*.sln'
+            feedsToUse: 'select'
+            vstsFeed: 'redacted'
+        - task: MSBuild@1
+          displayName: MS Build
+          inputs:
+            solution: '**/*.sln'
+            configuration: 'Release'
+            msbuildArguments: "/p:OutDir=$(Build.ArtifactStagingDirectory)/$(buildConfiguration)-$(Build.BuildId)"
+        - task: PublishBuildArtifacts@1
+          displayName: Publish artifact
+          inputs:
+           PathtoPublish: "$(Build.ArtifactStagingDirectory)"
+           ArtifactName: "drop"
+           PublishLocation: "Container"
+ - stage: Deploy
+   displayName: Deploy
+   jobs:
+    - job: Deploy
+      displayName: Deploy Package
+      steps: 
+        - task: DownloadPipelineArtifact@2
+          inputs:
+            buildType: 'current'
+            artifactName: 'drop'
+            targetPath: '$(System.DefaultWorkingDirectory)'
+        - task: AzureKeyVault@2
+          displayName: Secrets download
+          inputs:
+            azureSubscription: '$(azureSubscriptionConnection)'
+            KeyVaultName: '$(secretsKeyVaultName)'
+        - task: AzureRmWebAppDeployment@4
+          inputs:
+            ConnectionType: 'AzureRM'
+            appType: 'webApp'
+            ConnectedServiceName: '$(azureSubscriptionConnection)'
+            WebAppName: '$(appServiceName)'
+            packageForLinux: '$(System.DefaultWorkingDirectory)/$(buildConfiguration)-$(Build.BuildId)/_PublishedWebsites/$(solutionDirectoryName)'
+            enableXmlVariableSubstitution: true
